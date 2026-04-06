@@ -67,24 +67,24 @@ fn resolve_target(gene: &str) -> Result<Target> {
     match gene.to_lowercase().as_str() {
         "16s" => Ok(Target {
             label: "16S rRNA",
-            query: "Mycobacterium[Organism] AND 16S ribosomal RNA[Title] \
+            query: "Mycobacteriaceae[Organism] AND 16S ribosomal RNA[Title] \
                     AND 400:1800[SLEN] AND biomol_rrna[PROP]",
             default_output: "myco_16s.fasta",
         }),
         "hsp65" => Ok(Target {
             label: "hsp65",
-            query: "Mycobacterium[Organism] AND (hsp65[Gene Name] OR groEL2[Gene Name]) \
+            query: "Mycobacteriaceae[Organism] AND (hsp65[Gene Name] OR groEL2[Gene Name]) \
                     AND 300:700[SLEN]",
             default_output: "myco_hsp65.fasta",
         }),
         "rpob" => Ok(Target {
             label: "rpoB",
-            query: "Mycobacterium[Organism] AND rpoB[Gene Name] AND 300:800[SLEN]",
+            query: "Mycobacteriaceae[Organism] AND rpoB[Gene Name] AND 300:800[SLEN]",
             default_output: "myco_rpob.fasta",
         }),
         "erm41" => Ok(Target {
             label: "erm(41)",
-            query: "Mycobacterium[Organism] AND erm(41)[Gene Name]",
+            query: "Mycobacteriaceae[Organism] AND erm(41)[Gene Name]",
             default_output: "myco_erm41.fasta",
         }),
         other => anyhow::bail!(
@@ -195,8 +195,8 @@ fn main() -> Result<()> {
     let mut downloaded = 0usize;
     let mut retstart = 0usize;
 
-    while downloaded < fetch_total {
-        let batch_size = args.batch.min(fetch_total - downloaded);
+    while retstart < fetch_total {
+        let batch_size = args.batch.min(fetch_total - retstart);
 
         let fetch_url = build_efetch_url(&args, &web_env, &query_key, retstart, batch_size);
 
