@@ -84,7 +84,7 @@ fn resolve_target(gene: &str) -> Result<Target> {
         }),
         "erm41" => Ok(Target {
             label: "erm(41)",
-            query: "Mycobacteriaceae[Organism] AND erm(41)[Gene Name]",
+            query: "Mycobacteriaceae[Organism] AND erm(41)[Gene Name] AND 300:1000[SLEN]",
             default_output: "myco_erm41.fasta",
         }),
         other => anyhow::bail!(
