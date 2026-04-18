@@ -64,9 +64,9 @@ struct Target {
 
 fn resolve_target(gene: &str) -> Result<Target> {
     match gene.to_lowercase().as_str() {
-        "16s" => Ok(Target {
+        "rrs" => Ok(Target {
             label: "16S rRNA",
-            query: "Mycobacteriaceae[Organism] AND 16S ribosomal RNA[Title] \
+            query: "Mycobacteriaceae[Organism] AND (16S[Title] OR rrs[Gene Name]) \
                     AND 400:1800[SLEN] AND biomol_rrna[PROP]",
             default_output: "myco_16s.fasta",
         }),
