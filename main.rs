@@ -68,7 +68,7 @@ fn resolve_target(gene: &str) -> Result<Target> {
             label: "16S rRNA",
             query: "Mycobacteriaceae[Organism] AND (16S[Title] OR rrs[Gene Name]) \
                     AND 400:1800[SLEN] AND biomol_rrna[PROP]",
-            default_output: "myco_16s.fasta",
+            default_output: "myco_rrs.fasta",
         }),
         "hsp65" => Ok(Target {
             label: "hsp65",
