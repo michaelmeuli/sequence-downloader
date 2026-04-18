@@ -9,7 +9,6 @@
 ///   cargo run -- --gene 16s  --output myco_16s.fasta
 ///   cargo run -- --gene hsp65
 ///   cargo run -- --gene rpob --max 500 --email your@email.com
-
 use anyhow::{Context, Result};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -87,8 +86,14 @@ fn resolve_target(gene: &str) -> Result<Target> {
             query: "Mycobacteriaceae[Organism] AND erm(41)[Gene Name] AND 300:1000[SLEN]",
             default_output: "myco_erm41.fasta",
         }),
+        "rrl" => Ok(Target {
+            label: "23S rRNA (rrl)",
+            query: "Mycobacteriaceae[Organism] AND (23S ribosomal RNA[Title] OR rrl[Gene Name]) \
+                    AND 1000:3000[SLEN]",
+            default_output: "myco_rrl.fasta",
+        }),
         other => anyhow::bail!(
-            "Unknown gene target '{}'. Valid options: 16s, hsp65, rpob, erm41",
+            "Unknown gene target '{}'. Valid options: 16s, hsp65, rpob, erm41, rrl",
             other
         ),
     }
@@ -147,7 +152,11 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let fetch_total = if args.max > 0 { args.max.min(total) } else { total };
+    let fetch_total = if args.max > 0 {
+        args.max.min(total)
+    } else {
+        total
+    };
     println!("  Will download: {} sequences", fetch_total);
     println!();
 
@@ -170,11 +179,17 @@ fn main() -> Result<()> {
         .unwrap_or("1")
         .to_string();
 
-    println!("  History server ready. WebEnv: {}...", &web_env[..20.min(web_env.len())]);
+    println!(
+        "  History server ready. WebEnv: {}...",
+        &web_env[..20.min(web_env.len())]
+    );
     println!();
 
     // ── Step 3: efetch in batches ─────────────────────────────────────────────
-    println!("[3/3] Downloading sequences in batches of {}...", args.batch);
+    println!(
+        "[3/3] Downloading sequences in batches of {}...",
+        args.batch
+    );
 
     let mut out = OpenOptions::new()
         .write(true)
@@ -227,8 +242,14 @@ fn main() -> Result<()> {
     println!("  Output file          : {}", output);
     println!();
     println!("Next steps:");
-    println!("  makeblastdb -in {} -dbtype nucl -out myco_{}_db", output, args.gene);
-    println!("  blastn -query query.fasta -db myco_{}_db -outfmt 6 -perc_identity 99", args.gene);
+    println!(
+        "  makeblastdb -in {} -dbtype nucl -out myco_{}_db",
+        output, args.gene
+    );
+    println!(
+        "  blastn -query query.fasta -db myco_{}_db -outfmt 6 -perc_identity 99",
+        args.gene
+    );
 
     Ok(())
 }
@@ -312,7 +333,12 @@ fn retry_get(client: &reqwest::blocking::Client, url: &str, attempts: u32) -> Re
                 return resp.text().context("Failed to read response body");
             }
             Ok(resp) => {
-                eprintln!("  HTTP {} on attempt {}/{}", resp.status(), attempt, attempts);
+                eprintln!(
+                    "  HTTP {} on attempt {}/{}",
+                    resp.status(),
+                    attempt,
+                    attempts
+                );
             }
             Err(e) => {
                 eprintln!("  Request error on attempt {}/{}: {}", attempt, attempts, e);
