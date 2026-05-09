@@ -3,12 +3,13 @@
 /// Downloads Mycobacterium gene sequences from NCBI using the Entrez
 /// E-utilities API (esearch + efetch).
 ///
-/// Supported targets: 16s, hsp65, rpob, erm41
+/// Supported targets: rrs, hsp65, rpob, erm41, rrl, all
 ///
 /// Usage:
-///   cargo run -- --gene 16s  --output myco_16s.fasta
+///   cargo run -- --gene rrs  --output myco_rrs.fasta
 ///   cargo run -- --gene hsp65
 ///   cargo run -- --gene rpob --max 500 --email your@email.com
+///   cargo run -- --gene all
 use anyhow::{Context, Result};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -25,11 +26,11 @@ use std::time::Duration;
     about = "Download Mycobacterium gene sequences from NCBI Entrez"
 )]
 struct Args {
-    /// Gene target: 16s | hsp65 | rpob | erm41
-    #[arg(short, long, default_value = "16s")]
+    /// Gene target: rrs | hsp65 | rpob | erm41 | rrl | all
+    #[arg(short, long, default_value = "rrs")]
     gene: String,
 
-    /// Output FASTA file path (defaults to myco_<gene>.fasta)
+    /// Output FASTA file path (defaults to myco_<gene>.fasta; ignored for --gene all)
     #[arg(short, long)]
     output: Option<String>,
 
@@ -57,46 +58,76 @@ struct Args {
 // ── Gene targets ─────────────────────────────────────────────────────────────
 
 struct Target {
+    key: &'static str,
     label: &'static str,
     query: &'static str,
     default_output: &'static str,
 }
 
-fn resolve_target(gene: &str) -> Result<Target> {
-    match gene.to_lowercase().as_str() {
-        "rrs" => Ok(Target {
+fn all_targets() -> Vec<Target> {
+    vec![
+        Target {
+            key: "rrs",
             label: "16S rRNA",
-            query: "Mycobacteriaceae[Organism] AND (16S[Title] OR rrs[Gene Name]) \
-                    AND 400:1800[SLEN] AND biomol_rrna[PROP]",
+            query: "Mycobacteriaceae[Organism] \
+                    AND (16S[Title] OR rrs[Gene Name]) \
+                    AND 400:3000[SLEN] \
+                    AND type_material[Filter]",
             default_output: "myco_rrs.fasta",
-        }),
-        "hsp65" => Ok(Target {
+        },
+        Target {
+            key: "hsp65",
             label: "hsp65",
-            query: "Mycobacteriaceae[Organism] AND (hsp65[Gene Name] OR groEL2[Gene Name]) \
-                    AND 300:700[SLEN]",
+            query: "Mycobacteriaceae[Organism] \
+                    AND (hsp65[Gene Name] OR groEL2[Gene Name]) \
+                    AND 400:3000[SLEN] \
+                    AND type_material[Filter]",
             default_output: "myco_hsp65.fasta",
-        }),
-        "rpob" => Ok(Target {
+        },
+        Target {
+            key: "rpob",
             label: "rpoB",
-            query: "Mycobacteriaceae[Organism] AND rpoB[Gene Name] AND 300:800[SLEN]",
+            query: "Mycobacteriaceae[Organism] \
+                    AND rpoB[Gene Name] \
+                    AND 400:3000[SLEN] \
+                    AND type_material[Filter]",
             default_output: "myco_rpob.fasta",
-        }),
-        "erm41" => Ok(Target {
+        },
+        Target {
+            key: "erm41",
             label: "erm(41)",
-            query: "Mycobacteriaceae[Organism] AND erm(41)[Gene Name] AND 300:1000[SLEN]",
+            query: "Mycobacteriaceae[Organism] \
+                    AND erm(41)[Gene Name] \
+                    AND 400:3000[SLEN]",
             default_output: "myco_erm41.fasta",
-        }),
-        "rrl" => Ok(Target {
+        },
+        Target {
+            key: "rrl",
             label: "23S rRNA (rrl)",
-            query: "Mycobacteriaceae[Organism] AND (23S ribosomal RNA[Title] OR rrl[Gene Name]) \
-                    AND 1000:3000[SLEN]",
+            query: "Mycobacteriaceae[Organism] \
+                    AND (23S ribosomal RNA[Title] OR rrl[Gene Name]) \
+                    AND 400:3000[SLEN] \
+                    AND type_material[Filter]",
             default_output: "myco_rrl.fasta",
-        }),
-        other => anyhow::bail!(
-            "Unknown gene target '{}'. Valid options: 16s, hsp65, rpob, erm41, rrl",
-            other
-        ),
+        },
+    ]
+}
+
+fn resolve_target(gene: &str) -> Result<Vec<Target>> {
+    let gene = gene.to_lowercase();
+    if gene == "all" {
+        return Ok(all_targets());
     }
+    all_targets()
+        .into_iter()
+        .find(|t| t.key == gene)
+        .map(|t| vec![t])
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Unknown gene target '{}'. Valid options: rrs, hsp65, rpob, erm41, rrl, all",
+                gene
+            )
+        })
 }
 
 // ── NCBI Entrez base URL ─────────────────────────────────────────────────────
@@ -107,17 +138,31 @@ const BASE: &str = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils";
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    let target = resolve_target(&args.gene)?;
-    let output = args
-        .output
-        .clone()
-        .unwrap_or_else(|| target.default_output.to_string());
+    let targets = resolve_target(&args.gene)?;
 
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(60))
         .user_agent(format!("myco_downloader/0.1 ({})", args.email))
         .build()?;
 
+    for target in &targets {
+        let output = if targets.len() > 1 || args.output.is_none() {
+            target.default_output.to_string()
+        } else {
+            args.output.clone().unwrap()
+        };
+        download_target(&client, &args, target, &output)?;
+    }
+
+    Ok(())
+}
+
+fn download_target(
+    client: &reqwest::blocking::Client,
+    args: &Args,
+    target: &Target,
+    output: &str,
+) -> Result<()> {
     println!("=== Mycobacterium {} Sequence Downloader ===", target.label);
     println!("Query  : {}", target.query);
     println!("Output : {}", output);
@@ -126,7 +171,7 @@ fn main() -> Result<()> {
     // ── Step 1: esearch — get total count ────────────────────────────────────
     println!("[1/3] Searching NCBI nucleotide database...");
 
-    let search_url = build_esearch_url(&args, target.query, 0, 1);
+    let search_url = build_esearch_url(args, target.query, 0, 1);
     let search_resp: serde_json::Value = client
         .get(&search_url)
         .send()
@@ -148,7 +193,7 @@ fn main() -> Result<()> {
     }
 
     if args.count_only {
-        println!("\nCount-only mode — exiting without download.");
+        println!("\nCount-only mode — skipping download.");
         return Ok(());
     }
 
@@ -162,7 +207,7 @@ fn main() -> Result<()> {
 
     // ── Step 2: esearch with usehistory=y ────────────────────────────────────
     println!("[2/3] Storing results on NCBI history server...");
-    let history_url = build_esearch_url_history(&args, target.query, fetch_total);
+    let history_url = build_esearch_url_history(args, target.query, fetch_total);
     let history_resp: serde_json::Value = client
         .get(&history_url)
         .send()
@@ -195,7 +240,7 @@ fn main() -> Result<()> {
         .write(true)
         .create(true)
         .truncate(true)
-        .open(&output)
+        .open(output)
         .context("Cannot create output file")?;
 
     let pb = ProgressBar::new(fetch_total as u64);
@@ -213,9 +258,9 @@ fn main() -> Result<()> {
     while retstart < fetch_total {
         let batch_size = args.batch.min(fetch_total - retstart);
 
-        let fetch_url = build_efetch_url(&args, &web_env, &query_key, retstart, batch_size);
+        let fetch_url = build_efetch_url(args, &web_env, &query_key, retstart, batch_size);
 
-        let fasta_chunk = retry_get(&client, &fetch_url, 3)?;
+        let fasta_chunk = retry_get(client, &fetch_url, 3)?;
         let seq_count = fasta_chunk.matches('>').count();
 
         out.write_all(fasta_chunk.as_bytes())
@@ -244,11 +289,11 @@ fn main() -> Result<()> {
     println!("Next steps:");
     println!(
         "  makeblastdb -in {} -dbtype nucl -out myco_{}_db",
-        output, args.gene
+        output, target.key
     );
     println!(
         "  blastn -query query.fasta -db myco_{}_db -outfmt 6 -perc_identity 99",
-        args.gene
+        target.key
     );
 
     Ok(())
